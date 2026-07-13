@@ -24,7 +24,7 @@ type StockPackInput = {
 };
 
 const API_BASE = "https://api.biyingapi.com";
-const APP_VERSION = "1.2.0-history-range";
+const APP_VERSION = "1.3.0-action-compact";
 const responseCache = new Map<string, CacheEntry>();
 
 const OPENAPI_SCHEMA = {
@@ -32,7 +32,7 @@ const OPENAPI_SCHEMA = {
 	info: {
 		title: "A股波段投资数据接口",
 		description: "为个人A股和场内ETF波段分析提供实时行情、K线、行业概念和财务数据。",
-		version: "1.0.1",
+		version: "1.0.2",
 	},
 	servers: [{ url: "https://a-share-investor-mcp.zwwang1995.workers.dev" }],
 	paths: {
@@ -311,6 +311,72 @@ async function getStockAnalysisPack(env: Bindings, input: StockPackInput) {
 	};
 }
 
+function pickObjectFields(value: unknown, fields: readonly string[]) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+	const source = value as Record<string, unknown>;
+	const picked: Record<string, unknown> = {};
+	for (const field of fields) {
+		if (source[field] !== undefined) picked[field] = source[field];
+	}
+	return picked;
+}
+
+function compactBars(value: unknown, limit: number) {
+	if (!Array.isArray(value)) return value;
+	return value.slice(-limit).map((bar) =>
+		pickObjectFields(bar, ["t", "o", "h", "l", "c", "v"]),
+	);
+}
+
+function compactStockAnalysisPack(data: Awaited<ReturnType<typeof getStockAnalysisPack>>) {
+	const compact = {
+		appVersion: data.appVersion,
+		source: data.source,
+		fetchedAt: data.fetchedAt,
+		symbol: data.symbol,
+		adjust: data.adjust,
+		dataQuality: data.dataQuality,
+		quote: pickObjectFields(data.quote, [
+			"t", "p", "pc", "ud", "v", "cje", "zf", "hs", "pe", "lb", "fm",
+			"h", "l", "o", "yc", "sz", "lt", "sjl", "zdf60", "zdfnc",
+		]),
+		bars: {
+			intraday5m: compactBars(data.bars.intraday5m, 36),
+			daily: compactBars(data.bars.daily, 90),
+			weekly: compactBars(data.bars.weekly, 60),
+		},
+		classifications: Array.isArray(data.classifications)
+			? data.classifications.slice(0, 12).map((item) =>
+				pickObjectFields(item, ["code", "name"]),
+			)
+			: data.classifications,
+		financials: Array.isArray(data.financials)
+			? data.financials.slice(0, 4).map((item) =>
+				pickObjectFields(item, [
+					"date", "tbmg", "jqmg", "mgsy", "kfmg", "mgjz", "mgjy",
+					"zclr", "zylr", "zzlr", "yylr", "xsjl", "zyyw", "jzsy",
+					"kflr", "zysr", "zcfzl", "ldbl", "sdbl", "gdqy", "zzc",
+					"jyxj", "jylrb",
+				]),
+			)
+			: data.financials,
+		responseProfile: {
+			mode: "chatgpt-action-compact",
+			intraday5mBars: 36,
+			dailyBars: 90,
+			weeklyBars: 60,
+		},
+	};
+
+	return {
+		...compact,
+		responseProfile: {
+			...compact.responseProfile,
+			approximateCharacters: JSON.stringify(compact).length,
+		},
+	};
+}
+
 function formatApiDate(date: Date) {
 	return `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(date.getUTCDate()).padStart(2, "0")}`;
 }
@@ -406,11 +472,11 @@ async function handleRestApi(request: Request, env: Bindings, url: URL) {
 				code,
 				market,
 				adjust: adjust as StockPackInput["adjust"],
-				intradayBars: 48,
-				dailyBars: 120,
-				weeklyBars: 80,
+				intradayBars: 36,
+				dailyBars: 90,
+				weeklyBars: 60,
 			});
-			return jsonResponse(data);
+			return jsonResponse(compactStockAnalysisPack(data));
 		}
 
 		if (url.pathname === "/api/etf-quote") {
