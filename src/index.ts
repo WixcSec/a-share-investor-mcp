@@ -250,19 +250,19 @@ async function getStockAnalysisPack(env: Bindings, input: StockPackInput) {
 			biyingGet(env, `hsrl/ssjy/${input.code}`, {}, 45),
 			biyingGet(
 				env,
-				`hsstock/latest/${symbol}/5/n`,
+				`hsstock/history/${symbol}/5/n`,
 				{ lt: input.intradayBars },
 				240,
 			),
 			biyingGet(
 				env,
-				`hsstock/latest/${symbol}/d/${input.adjust}`,
+				`hsstock/history/${symbol}/d/${input.adjust}`,
 				{ lt: input.dailyBars },
 				900,
 			),
 			biyingGet(
 				env,
-				`hsstock/latest/${symbol}/w/${input.adjust}`,
+				`hsstock/history/${symbol}/w/${input.adjust}`,
 				{ lt: input.weeklyBars },
 				3600,
 			),
@@ -335,18 +335,33 @@ async function getIndexBars(
 	interval: "5" | "15" | "30" | "60" | "d" | "w" | "m",
 	limit: number,
 ) {
+	const end = new Date();
+	const start = new Date(end);
+	const calendarDays =
+		interval === "m"
+			? limit * 35
+			: interval === "w"
+				? limit * 8
+				: interval === "d"
+					? Math.ceil(limit * 1.8)
+					: Math.max(10, Math.ceil(limit / 48) * 3);
+	start.setUTCDate(start.getUTCDate() - calendarDays);
+	const formatDate = (date: Date) =>
+		`${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(date.getUTCDate()).padStart(2, "0")}`;
+
 	const bars = await biyingGet(
 		env,
-		`hsindex/latest/${symbol}/${interval}`,
-		{ lt: limit },
+		`hsindex/history/${symbol}/${interval}`,
+		{ st: formatDate(start), et: formatDate(end) },
 		interval === "d" || interval === "w" || interval === "m" ? 900 : 240,
 	);
+	const limitedBars = Array.isArray(bars) ? bars.slice(-limit) : bars;
 	return {
 		source: "毕盈API",
 		fetchedAt: new Date().toISOString(),
 		symbol,
 		interval,
-		bars,
+		bars: limitedBars,
 	};
 }
 
