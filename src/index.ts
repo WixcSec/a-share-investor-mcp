@@ -24,6 +24,7 @@ type StockPackInput = {
 };
 
 const API_BASE = "https://api.biyingapi.com";
+const APP_VERSION = "1.2.0-history-range";
 const responseCache = new Map<string, CacheEntry>();
 
 const OPENAPI_SCHEMA = {
@@ -238,6 +239,9 @@ async function biyingGet(
 
 async function getStockAnalysisPack(env: Bindings, input: StockPackInput) {
 	const symbol = `${input.code}.${input.market}`;
+	const intradayRange = historyDateRange("5", input.intradayBars);
+	const dailyRange = historyDateRange("d", input.dailyBars);
+	const weeklyRange = historyDateRange("w", input.weeklyBars);
 	const names = [
 		"quote",
 		"intraday5m",
@@ -251,19 +255,19 @@ async function getStockAnalysisPack(env: Bindings, input: StockPackInput) {
 			biyingGet(
 				env,
 				`hsstock/history/${symbol}/5/n`,
-				{ lt: input.intradayBars },
+				intradayRange,
 				240,
 			),
 			biyingGet(
 				env,
 				`hsstock/history/${symbol}/d/${input.adjust}`,
-				{ lt: input.dailyBars },
+				dailyRange,
 				900,
 			),
 			biyingGet(
 				env,
 				`hsstock/history/${symbol}/w/${input.adjust}`,
-				{ lt: input.weeklyBars },
+				weeklyRange,
 				3600,
 			),
 			biyingGet(env, `hszg/zg/${input.code}`, {}, 86400),
@@ -283,7 +287,15 @@ async function getStockAnalysisPack(env: Bindings, input: StockPackInput) {
 	settled.forEach((result, index) => {
 		const name = names[index];
 		if (result.status === "fulfilled") {
-			values[name] = result.value;
+			const limits: Partial<Record<(typeof names)[number], number>> = {
+				intraday5m: input.intradayBars,
+				daily: input.dailyBars,
+				weekly: input.weeklyBars,
+			};
+			values[name] =
+				Array.isArray(result.value) && limits[name]
+					? result.value.slice(-limits[name]!)
+					: result.value;
 		} else {
 			errors[name] = cleanError(result.reason);
 		}
@@ -293,6 +305,7 @@ async function getStockAnalysisPack(env: Bindings, input: StockPackInput) {
 	const failedItems = names.filter((name) => values[name] === null);
 
 	return {
+		appVersion: APP_VERSION,
 		source: "毕盈API",
 		fetchedAt: new Date().toISOString(),
 		symbol,
@@ -319,6 +332,25 @@ async function getStockAnalysisPack(env: Bindings, input: StockPackInput) {
 	};
 }
 
+function formatApiDate(date: Date) {
+	return `${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+function historyDateRange(interval: string, limit: number) {
+	const end = new Date();
+	const start = new Date(end);
+	const calendarDays =
+		interval === "m"
+			? limit * 35
+			: interval === "w"
+				? limit * 8
+				: interval === "d"
+					? Math.ceil(limit * 1.8)
+					: Math.max(10, Math.ceil(limit / 48) * 4);
+	start.setUTCDate(start.getUTCDate() - calendarDays);
+	return { st: formatApiDate(start), et: formatApiDate(end) };
+}
+
 async function getEtfQuote(env: Bindings, code: string) {
 	const quote = await biyingGet(env, `fd/real/time/${code}`, {}, 45);
 	return {
@@ -335,24 +367,12 @@ async function getIndexBars(
 	interval: "5" | "15" | "30" | "60" | "d" | "w" | "m",
 	limit: number,
 ) {
-	const end = new Date();
-	const start = new Date(end);
-	const calendarDays =
-		interval === "m"
-			? limit * 35
-			: interval === "w"
-				? limit * 8
-				: interval === "d"
-					? Math.ceil(limit * 1.8)
-					: Math.max(10, Math.ceil(limit / 48) * 3);
-	start.setUTCDate(start.getUTCDate() - calendarDays);
-	const formatDate = (date: Date) =>
-		`${date.getUTCFullYear()}${String(date.getUTCMonth() + 1).padStart(2, "0")}${String(date.getUTCDate()).padStart(2, "0")}`;
+	const range = historyDateRange(interval, limit);
 
 	const bars = await biyingGet(
 		env,
 		`hsindex/history/${symbol}/${interval}`,
-		{ st: formatDate(start), et: formatDate(end) },
+		range,
 		interval === "d" || interval === "w" || interval === "m" ? 900 : 240,
 	);
 	const limitedBars = Array.isArray(bars) ? bars.slice(-limit) : bars;
@@ -536,7 +556,7 @@ export default {
 			return MyMCP.serve("/mcp").fetch(request, env, ctx);
 		}
 
-		return new Response("A股波段投资数据助手已运行（MCP + GPT Action）", {
+		return new Response(`A股波段投资数据助手已运行（${APP_VERSION}，MCP + GPT Action）`, {
 			status: 200,
 			headers: corsHeaders("text/plain; charset=utf-8"),
 		});
