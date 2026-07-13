@@ -32,7 +32,7 @@ const OPENAPI_SCHEMA = {
 	info: {
 		title: "A股波段投资数据接口",
 		description: "为个人A股和场内ETF波段分析提供实时行情、K线、行业概念和财务数据。",
-		version: "1.0.0",
+		version: "1.0.1",
 	},
 	servers: [{ url: "https://a-share-investor-mcp.zwwang1995.workers.dev" }],
 	paths: {
@@ -70,14 +70,7 @@ const OPENAPI_SCHEMA = {
 					},
 				],
 				responses: {
-					"200": {
-						description: "股票分析数据包",
-						content: {
-							"application/json": {
-								schema: { type: "object", additionalProperties: true },
-							},
-						},
-					},
+					"200": { description: "成功返回股票分析数据包JSON" },
 					"400": { description: "参数错误" },
 					"502": { description: "上游数据接口错误" },
 				},
@@ -98,14 +91,7 @@ const OPENAPI_SCHEMA = {
 					},
 				],
 				responses: {
-					"200": {
-						description: "ETF实时行情",
-						content: {
-							"application/json": {
-								schema: { type: "object", additionalProperties: true },
-							},
-						},
-					},
+					"200": { description: "成功返回ETF实时行情JSON" },
 					"400": { description: "参数错误" },
 					"502": { description: "上游数据接口错误" },
 				},
@@ -144,14 +130,7 @@ const OPENAPI_SCHEMA = {
 					},
 				],
 				responses: {
-					"200": {
-						description: "指数K线",
-						content: {
-							"application/json": {
-								schema: { type: "object", additionalProperties: true },
-							},
-						},
-					},
+					"200": { description: "成功返回指数K线JSON" },
 					"400": { description: "参数错误" },
 					"502": { description: "上游数据接口错误" },
 				},
