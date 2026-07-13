@@ -215,7 +215,12 @@ async function biyingGet(
 	const response = await fetch(url, { headers: { Accept: "application/json" } });
 	const raw = await response.text();
 
-	if (!response.ok) throw new Error(`毕盈API返回 HTTP ${response.status}`);
+	if (!response.ok) {
+		const safeMessage = raw.replaceAll(licence, "***").slice(0, 200).trim();
+		throw new Error(
+			`毕盈API返回 HTTP ${response.status}${safeMessage ? `：${safeMessage}` : ""}`,
+		);
+	}
 
 	let data: unknown;
 	try {
@@ -233,8 +238,15 @@ async function biyingGet(
 
 async function getStockAnalysisPack(env: Bindings, input: StockPackInput) {
 	const symbol = `${input.code}.${input.market}`;
-	const [quote, intraday, daily, weekly, classifications, financials] =
-		await Promise.all([
+	const names = [
+		"quote",
+		"intraday5m",
+		"daily",
+		"weekly",
+		"classifications",
+		"financials",
+	] as const;
+	const settled = await Promise.allSettled([
 			biyingGet(env, `hsrl/ssjy/${input.code}`, {}, 45),
 			biyingGet(
 				env,
@@ -258,15 +270,52 @@ async function getStockAnalysisPack(env: Bindings, input: StockPackInput) {
 			biyingGet(env, `hscp/cwzb/${input.code}`, {}, 86400),
 		]);
 
+	const values: Record<(typeof names)[number], unknown | null> = {
+		quote: null,
+		intraday5m: null,
+		daily: null,
+		weekly: null,
+		classifications: null,
+		financials: null,
+	};
+	const errors: Partial<Record<(typeof names)[number], string>> = {};
+
+	settled.forEach((result, index) => {
+		const name = names[index];
+		if (result.status === "fulfilled") {
+			values[name] = result.value;
+		} else {
+			errors[name] = cleanError(result.reason);
+		}
+	});
+
+	const successfulItems = names.filter((name) => values[name] !== null);
+	const failedItems = names.filter((name) => values[name] === null);
+
 	return {
 		source: "毕盈API",
 		fetchedAt: new Date().toISOString(),
 		symbol,
 		adjust: input.adjust,
-		quote,
-		bars: { intraday5m: intraday, daily, weekly },
-		classifications,
-		financials,
+		dataQuality: {
+			status:
+				failedItems.length === 0
+					? "complete"
+					: successfulItems.length === 0
+						? "failed"
+						: "partial",
+			successfulItems,
+			failedItems,
+			errors,
+		},
+		quote: values.quote,
+		bars: {
+			intraday5m: values.intraday5m,
+			daily: values.daily,
+			weekly: values.weekly,
+		},
+		classifications: values.classifications,
+		financials: values.financials,
 	};
 }
 
